@@ -27,7 +27,7 @@ def worker_init_fn(worker_id):
 
 def get_video_patch(frame_no, pos, session_id, video_size=64):
     global video_extr
-    if 'video_extractors' not in globals():
+    if 'video_extr' not in globals():
         vid_extr = {sid: init_vid_extr(sid) for sid in range(8)}
     cap, H = vid_extr[session_id]
     # jump to the frame
