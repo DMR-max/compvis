@@ -21,12 +21,12 @@ def init_vid_extr(session_id, vid_map="RGB_videos/video_data_n3", H_map="RGB_vid
 
 def worker_init_fn(worker_id):
     # init video extr for process
-    global video_extractors
-    video_extractors = {sid: init_vid_extr(sid) for sid in range(8)}
+    global video_extr
+    video_extr = {sid: init_vid_extr(sid) for sid in range(8)}
 
 
 def get_video_patch(frame_no, pos, session_id, video_size=64):
-    global video_extractors
+    global video_extr
     if 'video_extractors' not in globals():
         vid_extr = {sid: init_vid_extr(sid) for sid in range(8)}
     cap, H = vid_extr[session_id]
