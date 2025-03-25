@@ -21,13 +21,13 @@ def init_vid_extr(session_id, vid_map="RGB_videos/video_data_n3", H_map="RGB_vid
 
 def worker_init_fn(worker_id):
     # init video extr for process
-    global video_extr
-    video_extr = {sid: init_vid_extr(sid) for sid in range(8)}
+    global vid_extr
+    vid_extr = {sid: init_vid_extr(sid) for sid in range(8)}
 
 
 def get_video_patch(frame_no, pos, session_id, video_size=64):
-    global video_extr
-    if 'video_extr' not in globals():
+    global vid_extr
+    if 'vid_extr' not in globals():
         vid_extr = {sid: init_vid_extr(sid) for sid in range(8)}
     cap, H = vid_extr[session_id]
     # jump to the frame
