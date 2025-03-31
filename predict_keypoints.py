@@ -5,17 +5,13 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
 
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Load dataset from .pkl file
-directory = "C:/Users/Bulut/Documents/GitHub/compvis/Dataset/"  # Update this to the correct path
-with open(directory + 'CombinedData.pkl', 'rb') as f:
+directory = "C:/Users/Bulut/Documents/GitHub/compvis/"  # Update this to the correct path
+with open(directory + 'finalKeypoints.pkl', 'rb') as f:
     data_dict = pickle.load(f)  # Assuming it's stored as a dictionary
-
-
-
 
 # Flatten data_dict to ensure each data sample is a 2D tensor of shape (seq_len, 2)
 data = []
@@ -23,44 +19,9 @@ labels = []
 for item in data_dict:
     # Convert each sequence into a tensor of shape (seq_len, 2) and each label as a float tensor
     sequence = torch.tensor(item[0], dtype=torch.float32)  # Ensure this is a tensor of shape (seq_len, 2)
-    # Remove the extra dimension if it exists
-    if sequence.ndimension() == 3 and sequence.shape[0] == 1:
-        sequence = sequence.squeeze(0)  # Remove the first singleton dimension
-
     label = torch.tensor(item[1], dtype=torch.float32).unsqueeze(0)   # Labels are the angle (single value)
     data.append(sequence)
     labels.append(label)
-
-
-
-# Filter out empty sequences and their corresponding labels
-filtered_data = []
-filtered_labels = []
-
-for seq, label in zip(data, labels):
-    if seq.shape[1] != 0:  # Ensure sequence is not empty (seq.shape[1] should be 2)
-        filtered_data.append(torch.tensor(seq, dtype=torch.float32))
-        filtered_labels.append(torch.tensor(label, dtype=torch.float32).unsqueeze(0))  # Keep label as (1,)
-
-
-data = filtered_data
-labels = filtered_labels
-
-#print(f"Filtered {len(data)} sequences with labels.")
-#print(f"Example sequence shape: {data[0].shape}, Example label shape: {labels[0].shape}")
-#print(f"Example sequence: {data[0]}")
-#
-#print(f"Loaded {len(data)} sequences with labels.")
-#print(f"Example sequence shape: {data[0].shape}, Example label shape: {labels[0].shape}")
-#print(f"Example sequence: {data[0]}")
-#print(f"Example label: {labels[0]}")
-
-
-
-
-
-
-
 
 # Padding function for variable-length sequences
 def pad_batch(batch):
@@ -82,13 +43,8 @@ class CoordDataset(Dataset):
         y = self.labels[idx]  # Keep as a single value (not sin/cos)
         return x, y
 
-# Split dataset into training and testing (e.g., 80% training, 20% testing)
+# Split dataset into training and testing (90% training, 10% testing)
 dataset = CoordDataset(data, labels)
-
-
-
-
-
 train_size = int(0.8 * len(dataset))
 test_size = len(dataset) - train_size
 train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
@@ -102,7 +58,9 @@ class TransformerRegressor(nn.Module):
     def __init__(self, input_dim=2, model_dim=64, num_heads=4, num_layers=2, ff_dim=128, dropout=0.1):
         super().__init__()
         self.embedding = nn.Linear(input_dim, model_dim)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=model_dim, nhead=num_heads, dim_feedforward=ff_dim, dropout=dropout, batch_first=True)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=model_dim, nhead=num_heads, 
+                                                        dim_feedforward=ff_dim, dropout=dropout, 
+                                                        batch_first=True)
         self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
         self.fc_out = nn.Linear(model_dim, 1)  # Output single angle value
 
@@ -112,8 +70,17 @@ class TransformerRegressor(nn.Module):
         x = x.mean(dim=1)  # Global average pooling
         return self.fc_out(x)  # (batch_size, 1)
 
+# Circular error function
+def circular_error(pred, actual):
+    """
+    Computes the circular error (in degrees) between predicted and actual angles.
+    The error is the minimum of the absolute difference and 360 minus that difference.
+    """
+    diff = abs(pred - actual)
+    return diff if diff <= 180 else 360 - diff
+
 # Training Function
-def train_model(model, train_dataloader, epochs=25, lr=0.005):
+def train_model(model, train_dataloader, epochs=15, lr=0.001):
     model.to(device)  # Move the model to GPU (if available)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -124,7 +91,6 @@ def train_model(model, train_dataloader, epochs=25, lr=0.005):
         for batch in train_dataloader:
             x, y = batch
             x, y = x.to(device), y.to(device)  # Move data to GPU
-            
             optimizer.zero_grad()
             output = model(x)
             loss = criterion(output, y)
@@ -139,25 +105,39 @@ def test_model(model, test_dataloader):
     model.to(device)  # Ensure the model is on the correct device
     model.eval()
     total_loss = 0
+    total_circular_error = 0
     criterion = nn.MSELoss()
+    count = 0
     with torch.no_grad():
         for batch in test_dataloader:
             x, y = batch
             x, y = x.to(device), y.to(device)  # Move data to GPU
-            
             predictions = model(x)
             loss = criterion(predictions, y)
             total_loss += loss.item()
-            # Optional: Print first few predictions vs actual values
-            print(f"Predictions: {predictions.squeeze().tolist()}")
-            print(f"Actual: {y.squeeze().tolist()}")
+            
+            # Compute and print circular error for each sample in the batch
+            preds = predictions.squeeze()
+            actuals = y.squeeze()
+            # Ensure both preds and actuals are iterable
+            if preds.dim() == 0:
+                preds = preds.unsqueeze(0)
+            if actuals.dim() == 0:
+                actuals = actuals.unsqueeze(0)
+            for pred, actual in zip(preds.tolist(), actuals.tolist()):
+                err = circular_error(pred, actual)
+                total_circular_error += err
+                count += 1
+                print(f"Actual: {actual:.2f}, Predicted: {pred:.2f}, Circular Error: {err:.2f}")
     
-    print(f"Test Loss: {total_loss/len(test_dataloader):.4f}")
+    avg_loss = total_loss / len(test_dataloader)
+    avg_circular_error = total_circular_error / count if count > 0 else 0
+    print(f"\nTest Loss: {avg_loss:.4f}")
+    print(f"Average Circular Error: {avg_circular_error:.2f}")
 
 # Train the model
 model = TransformerRegressor()
 train_model(model, train_dataloader)
 
-# Test the model
+# Test the model with detailed circular error analysis
 test_model(model, test_dataloader)
-
