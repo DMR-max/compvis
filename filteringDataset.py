@@ -49,7 +49,7 @@ for i, item in enumerate(data_dict):
         continue
 
     # Keep the data
-    filtered_data_list.append((image_path, angle))
+    filtered_data_list.append((image_path, sequence, angle))
 
 # Now we have a filtered list of (image_path, keypoints, angle)
 #print(f"Total valid samples: {len(filtered_data_list)}")
