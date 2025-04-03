@@ -111,9 +111,8 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     # Resize to the required video_size
     patch = cv2.resize(patch, (video_size, video_size))
     
-    # Normalize and format for neural networks
-    #patch = patch.astype(np.float32) / 255.0
-    #patch = np.transpose(patch, (2, 0, 1)) 
+    patch = patch.astype(np.float32) / 255.0
+    patch = np.transpose(patch, (2, 0, 1)) 
     # print(patch.shape)
     # print(frame_no)
     # cv2.imshow("First Frame", patch)
@@ -285,8 +284,8 @@ class TrajVideoTransformer(nn.Module):
         batch, T, _ = pos_seq.shape
         # proc pos
         
-        print(dpth_seq.shape)
-        print(pos_seq.shape)
+        # print(dpth_seq.shape)
+        # print(pos_seq.shape)
         
         pos_emb = self.pos_fc(torch.cat([pos_seq, dpth_seq, dir_seq], dim=2))  # (batch, T, pos_embed_dim)
         # proc video patch
@@ -433,8 +432,8 @@ def build_holdout_dict(label_file, session_id, timesteps=10, holdout_steps=10, v
             # Use the transformed pixel (x, y)
             pos_xy = pos_pixel[i, :2]
             patch, pos = get_video_patch_yolo(frame_no, pos_xy, session_id, video_size, yolo_model=yolo_model)
-            print("patch")
-            print(patch.shape)
+            # print("patch")
+            # print(patch.shape)
             init_seq_pos.append(np.append(pos, (pos[1] - door_y).astype(np.float32)))
             init_seq_vid.append(patch)
             
@@ -574,7 +573,7 @@ if __name__ == '__main__':
     timesteps = 10
     v_size = 128
     b_size = 128
-    num_epochs = 0
+    num_epochs = 100
     
     #lmdb_folder = "G:/computer vision opdracht/PrecomputedLMDB"
     lmdb_folder = "C:/cvisdata/PrecomputedLMDB"
@@ -626,11 +625,10 @@ if __name__ == '__main__':
     if 'vid_extr' not in globals():
         vid_extr = {sid: init_vid_extr(sid) for sid in range(8)}
     cap, H = vid_extr[3]
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 7200) #120*60 should be at 2:00 session 3, empty hallway.
     ret, frame = cap.read()
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) #(y, x c)
-    print("FRAME SHAPE")
-    print(frame.shape)
+
     #Run zoe once
     zoe = loadZoe()
     depth_map = zoe.infer_pil(frame, output_type="tensor").to(device)
@@ -639,8 +637,11 @@ if __name__ == '__main__':
     #os.join(os.getcwd(), f"modified_angle/checkpoint_angle_pred_keypoints_TBD_epoch_{20}.pth")
     angle_checkpoint = torch.load(os.path.join(os.getcwd(), f"modified_angle\checkpoint_angle_pred_images_TBD_epoch_{20}.pth"), map_location=device)
     angle_model.load_state_dict(angle_checkpoint)
-    
-    
+    # print(frame.shape)
+    # cv2.imshow("Depth Frame", frame)
+    # cv2.waitKey(0)  
+    # cv2.destroyAllWindows()
+    # exit()
     for epoch in range(num_epochs):
         print(depth_map.shape)
         real_epoch = start_epoch + epoch
@@ -661,7 +662,7 @@ if __name__ == '__main__':
             vid_seq = vid_seq.to(device)
             
 
-            print("POSITIONS")
+            #print("POSITIONS")
             #Round positions and cast to int\
             
             x_indices= pos_seq[..., 1].round().to(torch.int64)

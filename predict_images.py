@@ -218,9 +218,9 @@ def inference(model, video, batch_size=128, frame_size=1):
         pred = model(video)
     #pred_angle = pred.view(batch_size, frame_size, -1)
     pred_angle = pred.unsqueeze(1).repeat(1, 10, 1)
-    print("ANGLE")
-    print(pred.shape)
-    print(pred_angle.shape)
+    # print("ANGLE")
+    # print(pred.shape)
+    # print(pred_angle.shape)
     return pred_angle
 
 ###############################################################################
