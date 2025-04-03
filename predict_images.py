@@ -6,14 +6,16 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms, models
 from PIL import Image
+import torch.nn.functional as F
 
 ###############################################################################
 # 1. CONFIGURATION
 ###############################################################################
-DATA_PKL      = "C:/Users/Bulut/Documents/GitHub/compvis/images.pkl"  # <-- Replace with your path
+#DATA_PKL      = "C:/Users/Bulut/Documents/GitHub/compvis/images.pkl"  # <-- Replace with your path
+DATA_PKL      = os.path.join(os.getcwd(), "images.pkl")
 DEVICE        = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 BATCH_SIZE    = 5
-EPOCHS        = 15
+EPOCHS        = 1
 LEARNING_RATE = 0.001
 TRAIN_SPLIT   = 0.8  # Use 90% of the dataset for training and 10% for testing
 
@@ -61,6 +63,36 @@ class ImageAngleDataset(Dataset):
 ###############################################################################
 # 3. MODEL: Simple ResNet-based regressor
 ###############################################################################
+# class ImageRegressor(nn.Module):
+#     def __init__(self, pretrained=True):
+#         """
+#         If pretrained=True, uses pretrained ImageNet weights.
+#         If pretrained=False, initializes from scratch.
+#         """
+#         super().__init__()
+#         # Use a ResNet18 as the backbone
+#         if pretrained:
+#             backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+#         else:
+#             backbone = models.resnet18(weights=None)
+
+#         # Remove the final classification layer
+#         num_feats = backbone.fc.in_features
+#         backbone.fc = nn.Identity()
+
+#         self.backbone = backbone
+#         # Final linear to produce 1 output (angle)
+#         self.fc = nn.Linear(num_feats, 1)
+
+#     def forward(self, x):
+#         # x: [batch_size, 3, H, W]
+#         features = self.backbone(x)   # [batch_size, 512] for ResNet18
+#         out = self.fc(features)       # [batch_size, 1]
+#         return out
+
+###############################################################################
+# 3. MODEL: Simple ResNet-based regressor
+###############################################################################
 class ImageRegressor(nn.Module):
     def __init__(self, pretrained=True):
         """
@@ -80,12 +112,15 @@ class ImageRegressor(nn.Module):
 
         self.backbone = backbone
         # Final linear to produce 1 output (angle)
-        self.fc = nn.Linear(num_feats, 1)
+        #       But with an extra layer in between to smoothen the process
+        self.fc_before = nn.Linear(num_feats, 32)
+        self.fc = nn.Linear(32, 1)
 
     def forward(self, x):
         # x: [batch_size, 3, H, W]
         features = self.backbone(x)   # [batch_size, 512] for ResNet18
-        out = self.fc(features)       # [batch_size, 1]
+        before_out = self.fc_before(features)
+        out = self.fc(before_out)       # [batch_size, 1]
         return out
 
 ###############################################################################
@@ -161,6 +196,32 @@ def test_model(model, test_loader):
         err = circular_error(all_preds[i], all_labels[i])
         print(f"  Pred: {all_preds[i]:.2f}, Actual: {all_labels[i]:.2f}, Circular Error: {err:.2f}")
     print(f"Average Circular Error: {avg_circular_error:.2f}")
+    
+
+def inference(model, video, batch_size=128, frame_size=1):
+    #Video shape = (batch_size, 10frames, 3, 128, 128)
+    #Resize image to (batch_size, 10frames, 3, 244, 244)
+    print(video.shape)
+    #video = video.permute(0, 1, 4, 2, 3)
+    print(video.shape)
+    video = video[:, 0, :, :, :]
+    #video = video.view(batch_size * frame_size, 3, 128, 128)
+    #print(video)
+    #video = IMAGE_TRANSFORM(video_reshaped)
+    video = F.interpolate(video, size=(244, 244), mode='bilinear', align_corners=False).to(DEVICE)
+    
+    
+    
+    model.eval()
+    #image = IMAGE_TRANSFORM(image).unsqueeze(0).to(DEVICE)  # Add batch dimension
+    with torch.no_grad():
+        pred = model(video)
+    #pred_angle = pred.view(batch_size, frame_size, -1)
+    pred_angle = pred.unsqueeze(1).repeat(1, 10, 1)
+    print("ANGLE")
+    print(pred.shape)
+    print(pred_angle.shape)
+    return pred_angle
 
 ###############################################################################
 # 5. MAIN
@@ -193,6 +254,8 @@ def main():
     # 6) Test with detailed circular error analysis
     print("Starting Testing ...")
     test_model(model, test_loader)
+    
+    return model
 
 
 if __name__ == "__main__":

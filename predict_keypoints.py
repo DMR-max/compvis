@@ -2,6 +2,7 @@ import pickle
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
 
@@ -9,8 +10,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Load dataset from .pkl file
-directory = "C:/Users/Bulut/Documents/GitHub/compvis/"  # Update this to the correct path
-with open(directory + 'finalKeypoints.pkl', 'rb') as f:
+#get cwd
+directory = os.getcwd()
+#directory = "C:/Users/Bulut/Documents/GitHub/compvis"  # Update this to the correct path
+with open(directory + '/finalKeypoints.pkl', 'rb') as f:
     data_dict = pickle.load(f)  # Assuming it's stored as a dictionary
 
 # Flatten data_dict to ensure each data sample is a 2D tensor of shape (seq_len, 2)
