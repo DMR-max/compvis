@@ -198,13 +198,13 @@ def test_model(model, test_loader):
     print(f"Average Circular Error: {avg_circular_error:.2f}")
     
 
-def inference(model, video, batch_size=128, frame_size=1):
+def inference(model, video, batch_size=128, frame_size=10):
     #Video shape = (batch_size, 10frames, 3, 128, 128)
     #Resize image to (batch_size, 10frames, 3, 244, 244)
     print(video.shape)
     video = video.permute(0, 1, 2, 4, 3)
     print(video.shape)
-    video = video[:, 0, :, :, :]
+    video = video[:, frame_size-1, :, :, :]
     #video = video.view(batch_size * frame_size, 3, 128, 128)
     #print(video)
     #video = IMAGE_TRANSFORM(video_reshaped)
@@ -217,7 +217,7 @@ def inference(model, video, batch_size=128, frame_size=1):
     with torch.no_grad():
         pred = model(video)
     #pred_angle = pred.view(batch_size, frame_size, -1)
-    pred_angle = pred.unsqueeze(1).repeat(1, 10, 1)
+    pred_angle = pred.unsqueeze(1).repeat(1, frame_size, 1)
     # print("ANGLE")
     # print(pred.shape)
     # print(pred_angle.shape)

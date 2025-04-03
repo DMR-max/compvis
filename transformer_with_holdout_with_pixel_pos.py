@@ -80,11 +80,10 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     # Run YOLO model to detect persons
     results = yolo_model(frame_rgb, classes=[0])
     
-
+    #print("results")
+    #print(results[0].boxes[0])
     
-    person_boxes = [
-        box.xyxy.cpu().numpy()[0] for box in results[0].boxes[0] # Bounding box format: (x_min, y_min, x_max, y_max)
-    ]
+    person_boxes = [box.xyxy.cpu().numpy() for box in results[0].boxes]
     
     if not person_boxes:  # No person detected
         patch = np.zeros((video_size, video_size, 3), dtype=np.uint8)
@@ -92,11 +91,24 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
         patch = np.transpose(patch, (2, 0, 1))
         return patch
     
+    person_boxes = np.vstack(person_boxes)
+    
+    print("ACTUAL BOXES")
+    for b in person_boxes:
+        print("boxes")
+        print(b)
+    
+    # for b in person_boxes:
+    #     print("boxes")
+    #     print(b)
     person_bottom_centers = [
         ((b[0] + b[2]) / 2, b[3], b)  # (center_x, bottom_y, bounding_box)
         for b in person_boxes
     ]
-
+    print("True pos")
+    print(pos)
+    print("Detected person positions")
+    print(person_bottom_centers)
     
     # Select the box closest to the given position and assume its the correct person.
     closest_box_data = min(person_bottom_centers, key=lambda c: (c[0] - pos[0]) ** 2 + (c[1] - pos[1]) ** 2)
@@ -104,7 +116,8 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
 
     x_min, y_min, x_max, y_max = map(int, closest_box)
     bottom_center = np.float32([closest_box_data[0], closest_box_data[1], 0])
-    
+    print("selected pos")
+    print(bottom_center)
     # Crop the detected person
     patch = frame_rgb[y_min:y_max, x_min:x_max]
     
@@ -445,20 +458,19 @@ def build_holdout_dict(label_file, session_id, timesteps=10, holdout_steps=10, v
     
     return holdout_list
 
-def predict_future_steps(model, init_seq_pos, init_seq_vid, num_steps, door_y=None, depth_map=None):
+def predict_future_steps(model, init_seq_pos, init_seq_vid, num_steps, door_y=None, depth_map=None, angle_model=None):
     model.eval()
     pred_list = []
     curr_pos = torch.tensor(init_seq_pos).unsqueeze(0).to(device)  # (1, T, pos_dim)
     curr_vid = torch.tensor(init_seq_vid).unsqueeze(0).to(device)  # (1, T, C, H, W) 
-    
-    depth_map = torch.ones((3000, 3000)).to(device)
+     
 
     
     
 
     for i in tqdm(range(num_steps)):
         
-        
+        curr_angle = inference(angle_model, curr_vid, batch_size=1, frame_size=10)
         x_values= curr_pos[..., 1]
         y_values = curr_pos[..., 0]
             
@@ -468,7 +480,7 @@ def predict_future_steps(model, init_seq_pos, init_seq_vid, num_steps, door_y=No
         curr_dpth = depth_map[x_indices, y_indices].unsqueeze(-1)
         
         with torch.no_grad():
-            pred = model(curr_pos, curr_vid, curr_dpth)
+            pred = model(curr_pos, curr_vid, curr_dpth, curr_angle)
         
         pred_door = pred[:, 1:2] - door_y  # shape: (1,1)
         pred_full = torch.cat([pred, pred_door], dim=1)  # shape: (1,4)
@@ -482,6 +494,7 @@ def predict_future_steps(model, init_seq_pos, init_seq_vid, num_steps, door_y=No
         # For the video sequence, we reuse the last patch.
         last_patch = curr_vid[:, -1:, :, :, :]
         curr_vid = torch.cat([curr_vid[:, 1:, :, :, :], last_patch], dim=1)
+        
     
     return np.array(pred_list)
 
@@ -501,16 +514,17 @@ def inverse_normalize_coords(coords, frame_width, frame_height):
     coords[:, 3] *= frame_height
     return coords
 
-def evaluate_holdout(model, holdout_dict, holdout_steps=10, selected_persons=None, door_y=None, frame_width=None, frame_height=None):
+def evaluate_holdout(model, holdout_dict, holdout_steps=10, selected_persons=None, door_y=None, frame_width=None, frame_height=None, depth_map=None, angle_model=None):
     model.eval()
     results = {}
     metrics_all = []
+
     for pid, (init_seq_pos, init_seq_vid, true_future) in holdout_dict.items():
         if selected_persons is not None and pid not in selected_persons:
             continue
 
         # Predict future steps
-        pred_future = predict_future_steps(model, init_seq_pos, init_seq_vid, holdout_steps, door_y=door_y)
+        pred_future = predict_future_steps(model, init_seq_pos, init_seq_vid, holdout_steps, door_y=door_y, depth_map=depth_map, angle_model=angle_model)
 
         if frame_width is not None and frame_height is not None:
             pred_future_pixel = inverse_normalize_coords(pred_future.copy(), frame_width, frame_height)
@@ -573,7 +587,7 @@ if __name__ == '__main__':
     timesteps = 10
     v_size = 128
     b_size = 128
-    num_epochs = 100
+    num_epochs = 0
     
     #lmdb_folder = "G:/computer vision opdracht/PrecomputedLMDB"
     lmdb_folder = "C:/cvisdata/PrecomputedLMDB"
@@ -604,7 +618,7 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    checkpoint_path = "checkpoint_trans_good_norm_epoch_100.pth"
+    checkpoint_path = "checkpoint_trans_good_norm_epoch_19.pth"
     start_epoch = 0 
 
     if os.path.isfile(checkpoint_path):
@@ -711,4 +725,4 @@ if __name__ == '__main__':
     
     # Evaluate on selected persons (set selected_persons to None to evaluate all)
     selected_persons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    eval_results = evaluate_holdout(model, holdout_dict, holdout_steps=holdout_steps, selected_persons=None, door_y=DOOR_Y)
+    eval_results = evaluate_holdout(model, holdout_dict, holdout_steps=holdout_steps, selected_persons=None, door_y=DOOR_Y, depth_map=depth_map, angle_model=angle_model)
