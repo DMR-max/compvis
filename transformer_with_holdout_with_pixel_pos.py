@@ -560,7 +560,7 @@ if __name__ == '__main__':
     DOOR_Y = 450
 
     # List of sessions and corresponding label files
-    session_ids = [1]#, 3, 5, 6, 7]  
+    session_ids = [1, 2, 3]#, 3, 5, 6, 7]  
     label_files = [f"Pedestrian_labels/{sid}_frame.txt" for sid in session_ids]
     
     # Set global SESSION_IDS for worker initialization
@@ -658,8 +658,10 @@ if __name__ == '__main__':
             print("POSITIONS")
             #Round positions and cast to int\
             
-            x_indices= pos_seq[..., 0].round().multiply(0).to(torch.int64)
-            y_indices = pos_seq[..., 1].round().multiply(0).to(torch.int64)
+            x_indices= pos_seq[..., 0].round().to(torch.int64)
+            y_indices = pos_seq[..., 1].round().to(torch.int64)
+            x_indices = torch.clamp(x_indices, min=0, max=1280-1)
+            y_indices = torch.clamp(y_indices, min=0, max=1024-1)
             #print(torch.max(x_indices))
             #print(torch.max(y_indices))
             
