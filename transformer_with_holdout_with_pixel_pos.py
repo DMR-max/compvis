@@ -112,8 +112,13 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     patch = cv2.resize(patch, (video_size, video_size))
     
     # Normalize and format for neural networks
-    patch = patch.astype(np.float32) / 255.0
-    patch = np.transpose(patch, (2, 0, 1)) 
+    #patch = patch.astype(np.float32) / 255.0
+    #patch = np.transpose(patch, (2, 0, 1)) 
+    # print(patch.shape)
+    # print(frame_no)
+    # cv2.imshow("First Frame", patch)
+    # cv2.waitKey(0)  
+    # cv2.destroyAllWindows()
     
     return patch, bottom_center
 
@@ -455,8 +460,8 @@ def predict_future_steps(model, init_seq_pos, init_seq_vid, num_steps, door_y=No
     for i in tqdm(range(num_steps)):
         
         
-        x_values= curr_pos[..., 0]
-        y_values = curr_pos[..., 1]
+        x_values= curr_pos[..., 1]
+        y_values = curr_pos[..., 0]
             
         x_indices = x_values.type(torch.int64)
         y_indices = y_values.type(torch.int64)
@@ -569,7 +574,7 @@ if __name__ == '__main__':
     timesteps = 10
     v_size = 128
     b_size = 128
-    num_epochs = 100
+    num_epochs = 0
     
     #lmdb_folder = "G:/computer vision opdracht/PrecomputedLMDB"
     lmdb_folder = "C:/cvisdata/PrecomputedLMDB"

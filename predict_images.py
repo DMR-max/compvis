@@ -202,7 +202,7 @@ def inference(model, video, batch_size=128, frame_size=1):
     #Video shape = (batch_size, 10frames, 3, 128, 128)
     #Resize image to (batch_size, 10frames, 3, 244, 244)
     print(video.shape)
-    #video = video.permute(0, 1, 4, 2, 3)
+    video = video.permute(0, 1, 2, 4, 3)
     print(video.shape)
     video = video[:, 0, :, :, :]
     #video = video.view(batch_size * frame_size, 3, 128, 128)
