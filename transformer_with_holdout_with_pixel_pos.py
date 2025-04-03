@@ -560,7 +560,7 @@ if __name__ == '__main__':
     DOOR_Y = 450
 
     # List of sessions and corresponding label files
-    session_ids = [1, 2, 3]#, 3, 5, 6, 7]  
+    session_ids = [1, 2]#, 3, 5, 6, 7]  
     label_files = [f"Pedestrian_labels/{sid}_frame.txt" for sid in session_ids]
     
     # Set global SESSION_IDS for worker initialization
@@ -623,7 +623,7 @@ if __name__ == '__main__':
     cap, H = vid_extr[3]
     cap.set(cv2.CAP_PROP_POS_FRAMES, 1)
     ret, frame = cap.read()
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) #(y, x c)
     print("FRAME SHAPE")
     print(frame.shape)
     #Run zoe once
@@ -637,6 +637,7 @@ if __name__ == '__main__':
     
     
     for epoch in range(num_epochs):
+        print(depth_map.shape)
         real_epoch = start_epoch + epoch
         checkpoint_path = f"checkpoint_trans_good_norm_epoch_{real_epoch+1}.pth"
         epoch_loss = 0.0
@@ -658,8 +659,8 @@ if __name__ == '__main__':
             print("POSITIONS")
             #Round positions and cast to int\
             
-            x_indices= pos_seq[..., 0].round().to(torch.int64)
-            y_indices = pos_seq[..., 1].round().to(torch.int64)
+            x_indices= pos_seq[..., 1].round().to(torch.int64)
+            y_indices = pos_seq[..., 0].round().to(torch.int64)
             x_indices = torch.clamp(x_indices, min=0, max=1280-1)
             y_indices = torch.clamp(y_indices, min=0, max=1024-1)
             #print(torch.max(x_indices))
