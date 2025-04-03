@@ -78,7 +78,7 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # Run YOLO model to detect persons
-    results = yolo_model(frame_rgb, classes=[0])
+    results = yolo_model(frame_rgb, classes=[0], verbose=False)
     
     #print("results")
     #print(results[0].boxes[0])
@@ -92,11 +92,7 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
         return patch
     
     person_boxes = np.vstack(person_boxes)
-    
-    print("ACTUAL BOXES")
-    for b in person_boxes:
-        print("boxes")
-        print(b)
+
     
     # for b in person_boxes:
     #     print("boxes")
@@ -105,10 +101,6 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
         ((b[0] + b[2]) / 2, b[3], b)  # (center_x, bottom_y, bounding_box)
         for b in person_boxes
     ]
-    print("True pos")
-    print(pos)
-    print("Detected person positions")
-    print(person_bottom_centers)
     
     # Select the box closest to the given position and assume its the correct person.
     closest_box_data = min(person_bottom_centers, key=lambda c: (c[0] - pos[0]) ** 2 + (c[1] - pos[1]) ** 2)
@@ -116,8 +108,6 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
 
     x_min, y_min, x_max, y_max = map(int, closest_box)
     bottom_center = np.float32([closest_box_data[0], closest_box_data[1], 0])
-    print("selected pos")
-    print(bottom_center)
     # Crop the detected person
     patch = frame_rgb[y_min:y_max, x_min:x_max]
     
@@ -160,7 +150,8 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
 #     return patch
 
 class TrajectoryVideoDataset(Dataset):
-    def __init__(self, label_file, session_id, timesteps=10, video_size=64, door_y=0, use_precomputed=False, hdf5_path=None):
+    def __init__(self, label_file, session_id, timesteps=10, video_size=64, door_y=0, use_precomputed=False, hdf5_path=None, yolo_model=None):
+        self.yolo_model = yolo_model
         self.sess_id = session_id
         self.t = timesteps
         self.vid_size = video_size
@@ -188,13 +179,12 @@ class TrajectoryVideoDataset(Dataset):
         
         # Convert target positions from world to pixel coordinates.
         target_samples_pos = target_samples[['x','y','z']].values.astype(np.float32)
-        pixel_target = world_to_pixel(target_samples_pos[:, :2], H)
-        target_samples_pos[:, :2] = pixel_target
 
         # Convert the input sequence positions.
         pos_seq_samples = seq_samples[['x','y','z']].values.astype(np.float32)
         pixel_coords = world_to_pixel(pos_seq_samples[:, :2], H)
-        pos_seq_samples[:, :2] = pixel_coords
+        pos_seq_samples_vid = pos_seq_samples.copy()
+        pos_seq_samples_vid[:, :2] = pixel_coords
 
         if self.door_y is not None:
             door_feature = (seq_samples[['y']].values.astype(np.float32) - self.door_y)
@@ -205,7 +195,7 @@ class TrajectoryVideoDataset(Dataset):
         for i, (_, row) in enumerate(seq_samples.iterrows()):
             frame_no = int(row['frame'])
             pos_xy = pixel_coords[i]  # Already in pixel space.
-            patch = get_video_patch(frame_no, pos_xy, self.sess_id, video_size=self.vid_size)
+            patch = get_video_patch_yolo(frame_no, pos_xy, self.sess_id, video_size=self.vid_size, yolo_model=self.yolo_model)[0]
             vid_seq.append(patch)
         vid_seq = np.stack(vid_seq, axis=0)  # (T, channels, video_size, video_size)
     
@@ -317,7 +307,7 @@ class TrajVideoTransformer(nn.Module):
         pred = self.fc_out(out)  # (batch, output_dim)
         return pred
     
-def precompute_and_save_video_patches_lmdb(dataset, lmdb_output_path, batch_size=64, map_size=int(150 * 1024**3), sess_id=None):
+def precompute_and_save_video_patches_lmdb(dataset, lmdb_output_path, batch_size=64, map_size=int(38 * 1024**3), sess_id=None):
     if sess_id == 6:
         map_size = int(38 * 1024**3)
     if sess_id == 3:
@@ -587,22 +577,23 @@ if __name__ == '__main__':
     timesteps = 10
     v_size = 128
     b_size = 128
-    num_epochs = 0
+    num_epochs = 50
     
-    #lmdb_folder = "G:/computer vision opdracht/PrecomputedLMDB"
-    lmdb_folder = "C:/cvisdata/PrecomputedLMDB"
+    lmdb_folder = "G:/computer vision opdracht/PrecomputedLMDB"
+    # lmdb_folder = "C:/cvisdata/PrecomputedLMDB"
 
     # LMDB file names for each session (one file per session)
     db_files = {sid: os.path.join(lmdb_folder, f"precomputed_patches_session_{sid}.lmdb") for sid in session_ids}
     os.makedirs(lmdb_folder, exist_ok=True)
 
     d_list = []
+    yolo_model = YOLO("yolo11n.pt")
     # For each session check if the LMDB exists
     for label_file, sid in zip(label_files, session_ids):
         lmdb_path = db_files[sid]
         if not os.path.exists(lmdb_path):
             print(f"Precomputing video patches for session {sid} and saving to {lmdb_path}...")
-            temp_dataset = TrajectoryVideoDataset(label_file, sid, timesteps=timesteps, video_size=v_size, door_y=DOOR_Y)
+            temp_dataset = TrajectoryVideoDataset(label_file, sid, timesteps=timesteps, video_size=v_size, door_y=DOOR_Y, yolo_model=yolo_model)
             precompute_and_save_video_patches_lmdb(temp_dataset, lmdb_path, batch_size=4, sess_id=sid)
         # Create LMDB dataset.
         ds = TrajectoryVideoLMDBDataset(lmdb_path, sid, door_y=DOOR_Y, norm=False)
@@ -719,7 +710,6 @@ if __name__ == '__main__':
     
     # Build holdout dictionary from the same label file (or a different one for evaluation)
     #global yolo_model 
-    yolo_model = YOLO("yolo11n.pt")
     holdout_steps = 10
     holdout_dict = build_holdout_dict("Pedestrian_labels/0_frame.txt", 0, timesteps=timesteps, holdout_steps=holdout_steps, video_size=v_size, door_y=DOOR_Y, yolo_model=yolo_model)
     
