@@ -80,8 +80,6 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     # Run YOLO model to detect persons
     results = yolo_model(frame_rgb, classes=[0], verbose=False)
     
-    #print("results")
-    #print(results[0].boxes[0])
     
     person_boxes = [box.xyxy.cpu().numpy() for box in results[0].boxes]
     
@@ -94,9 +92,6 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     person_boxes = np.vstack(person_boxes)
 
     
-    # for b in person_boxes:
-    #     print("boxes")
-    #     print(b)
     person_bottom_centers = [
         ((b[0] + b[2]) / 2, b[3], b)  # (center_x, bottom_y, bounding_box)
         for b in person_boxes
@@ -116,38 +111,10 @@ def get_video_patch_yolo(frame_no, pos, session_id, video_size=64, yolo_model=No
     
     patch = patch.astype(np.float32) / 255.0
     patch = np.transpose(patch, (2, 0, 1)) 
-    # print(patch.shape)
-    # print(frame_no)
-    # cv2.imshow("First Frame", patch)
-    # cv2.waitKey(0)  
-    # cv2.destroyAllWindows()
+
     
     return patch, bottom_center
 
-# from functools import lru_cache
-
-# @lru_cache(maxsize=100)  # Adjust maxsize based on available memory
-# def load_frame(frame_no, session_id, video_size):
-#     cap, H = init_video_extractor(session_id)
-#     # Make sure frame_no is a float for OpenCV
-#     cap.set(cv2.CAP_PROP_POS_FRAMES, float(frame_no))
-#     ret, frame = cap.read()
-#     cap.release()
-#     if ret:
-#         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-#     else:
-#         # Return a blank frame if reading fails
-#         frame = np.zeros((video_size, video_size, 3), dtype=np.uint8)
-#     return frame, H
-
-# def extract_patch_from_frame(frame, pos, H, video_size=64):
-#     point = np.array([[pos]], dtype=np.float32)  # shape (1,1,2)
-#     point_img = cv2.perspectiveTransform(point, H)  # map to image coordinates
-#     x_img, y_img = point_img[0, 0]
-#     patch = cv2.getRectSubPix(frame, (video_size, video_size), (x_img, y_img))
-#     patch = patch.astype(np.float32) / 255.0
-#     patch = np.transpose(patch, (2, 0, 1))
-#     return patch
 
 class TrajectoryVideoDataset(Dataset):
     def __init__(self, label_file, session_id, timesteps=10, video_size=64, door_y=0, use_precomputed=False, hdf5_path=None, yolo_model=None):
@@ -174,13 +141,13 @@ class TrajectoryVideoDataset(Dataset):
     
     def __getitem__(self, idx):
         seq_samples, target_samples = self.samples[idx]
-        # Get the homography matrix from the video extractor.
+        # Get the homography matrix from the video extr
         cap, H = init_vid_extr(self.sess_id)
         
-        # Convert target positions from world to pixel coordinates.
+        # Convert target positions from world to pixel coordinates
         target_samples_pos = target_samples[['x','y','z']].values.astype(np.float32)
 
-        # Convert the input sequence positions.
+        # Convert the input sequence positions
         pos_seq_samples = seq_samples[['x','y','z']].values.astype(np.float32)
         pixel_coords = world_to_pixel(pos_seq_samples[:, :2], H)
         pos_seq_samples_vid = pos_seq_samples.copy()
@@ -191,10 +158,10 @@ class TrajectoryVideoDataset(Dataset):
             pos_seq_samples = np.concatenate([pos_seq_samples, door_feature], axis=1)
 
         vid_seq = []
-        # Use the pixel_coords array (already converted) when extracting patches.
+        # Use the pixel_coords array (already converted) when extracting patches
         for i, (_, row) in enumerate(seq_samples.iterrows()):
             frame_no = int(row['frame'])
-            pos_xy = pixel_coords[i]  # Already in pixel space.
+            pos_xy = pixel_coords[i]  
             patch = get_video_patch_yolo(frame_no, pos_xy, self.sess_id, video_size=self.vid_size, yolo_model=self.yolo_model)[0]
             vid_seq.append(patch)
         vid_seq = np.stack(vid_seq, axis=0)  # (T, channels, video_size, video_size)
@@ -202,7 +169,7 @@ class TrajectoryVideoDataset(Dataset):
         return pos_seq_samples, vid_seq, target_samples_pos
 
 class TrajVideoCNNLSTM(nn.Module):
-    def __init__(self, pos_dim=4, pos_embed_dim=16, video_channels=3, video_size=128,
+    def __init__(self, pos_dim=6, pos_embed_dim=16, video_channels=3, video_size=128,
                  cnn_feature_dim=32, lstm_hidden_dim=64, lstm_layers=1, output_dim=3):
         super().__init__()
         # Embed the trajectory positions
@@ -220,22 +187,22 @@ class TrajVideoCNNLSTM(nn.Module):
         cnn_out_size = 32 * (video_size // 4) * (video_size // 4)
         self.video_fc = nn.Linear(cnn_out_size, cnn_feature_dim)
         
-        # Combine the position and video features and project them before the LSTM
+        # Comb the pos and vid features and project them before the LSTM
         self.input_fc = nn.Linear(pos_embed_dim + cnn_feature_dim, lstm_hidden_dim)
         
         # LSTM to process the sequential data
         self.lstm = nn.LSTM(lstm_hidden_dim, lstm_hidden_dim, num_layers=lstm_layers, batch_first=True)
         
-        # Final fully-connected layer to predict output trajectory (e.g., x,y,z)
+        # Final layer to pred output trajector
         self.fc_out = nn.Linear(lstm_hidden_dim, output_dim)
         
-    def forward(self, pos_seq, vid_seq):
+    def forward(self, pos_seq, vid_seq, dpth_seq=None, dir_seq=None,):
         batch, T, _ = pos_seq.shape
         
-        # Process trajectory positions
-        pos_emb = self.pos_fc(pos_seq)  # shape: (batch, T, pos_embed_dim)
+        # Process traj pos
+        pos_emb = self.pos_fc(torch.cat([pos_seq, dpth_seq, dir_seq], dim=2))  # shape: (batch, T, pos_embed_dim)
         
-         # Reshape to combine batch and T dimensions for CNN processing.
+        # Reshape to combine batch and T dimensions for CNN processing.
         vid_seq = vid_seq.view(batch * T, vid_seq.shape[2], vid_seq.shape[3], vid_seq.shape[4])
         cnn_out = self.cnn_encoder(vid_seq)  # shape: (batch*T, 32, video_size/4, video_size/4)
         cnn_out = cnn_out.contiguous().view(batch, T, -1)  # shape: (batch, T, cnn_out_size)
@@ -281,15 +248,8 @@ class TrajVideoTransformer(nn.Module):
         self.fc_out = nn.Linear(transformer_dim, output_dim)
         
     def forward(self, pos_seq, vid_seq, dpth_seq=None, dir_seq=None,):
-        # pos_seq shape (batch, T, pos_dim)
-        # vid_seq shape (batch, T, channels, video_size, video_size)
         batch, T, _ = pos_seq.shape
-        # proc pos
-        
-        # print(dpth_seq.shape)
-        # print(pos_seq.shape)
-        
-        pos_emb = self.pos_fc(torch.cat([pos_seq, dpth_seq, dir_seq], dim=2))  # (batch, T, pos_embed_dim)
+        pos_emb = self.pos_fc(torch.cat([pos_seq, dpth_seq, dir_seq], dim=2))  # (batch, T, pos_embed_dim) (shape commented for clarity)
         # proc video patch
         vid_seq = vid_seq.view(batch * T, vid_seq.shape[2], vid_seq.shape[3], vid_seq.shape[4])
         cnn_out = self.cnn_encoder(vid_seq)  # (batch*T, 32, video_size/4, video_size/4)
@@ -307,10 +267,12 @@ class TrajVideoTransformer(nn.Module):
         return pred
     
 def precompute_and_save_video_patches_lmdb(dataset, lmdb_output_path, batch_size=64, map_size=int(38 * 1024**3), sess_id=None):
-    if sess_id == 6:
-        map_size = int(38 * 1024**3)
+    if sess_id == 5:
+        map_size = int(150 * 1024**3)
     if sess_id == 3:
         map_size = int(200 * 1024**3)
+    if sess_id == 4:
+        map_size = int(250 * 1024**3)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
     total_samples = len(dataset)
     env = lmdb.open(lmdb_output_path, map_size=map_size)
@@ -344,14 +306,14 @@ class TrajectoryVideoLMDBDataset(Dataset):
         self.lmdb_path = lmdb_path
         self.sess_id = sess_id
         self.env = None
-        # Open the LMDB environment in read-only mode to fetch the total number of samples.
+        # Open the LMDB environment in read-only mode to fetch the total number of samples
         with lmdb.open(self.lmdb_path, readonly=True, lock=False) as env:
             with env.begin() as txn:
                 self.num_samples = pickle.loads(txn.get(b'num_samples'))
         # Retrieve the homography matrix for this session
         _, self.H = init_vid_extr(self.sess_id)
 
-        # If normalization is requested, determine frame dimensions.
+        # If norm is req determine frame dim
         if self.norm:
             if f_width is None or f_height is None:
                 cap, _ = init_vid_extr(self.sess_id)
@@ -376,24 +338,23 @@ class TrajectoryVideoLMDBDataset(Dataset):
         # Convert video patch back to float32 [0,1]
         vid_seq = torch.tensor(sample['vid_seq'], dtype=torch.float32) / 255.0
 
-        # Convert the first two columns of pos_seq and target from world to pixel coordinates.
+        # Convert the first two cols of pos_seq and target from world to pixel coordinates.
         pos_seq_np = pos_seq.numpy()
         target_pos_np = target_pos.numpy()
         # For pos_seq, assume it's 2D (T, 3)
         pos_seq_np[:, :2] = world_to_pixel(pos_seq_np[:, :2], self.H)
         pos_seq_np[:, 3] = pos_seq_np[:, 1] - self.door_y
-        # For target, check if it is 1D or 2D.
         # Reshape to (1,2) for conversion then assign back.
         converted_to_pixel_pos = world_to_pixel(target_pos_np[:2].reshape(1, 2), self.H)  # shape (1,2)
         target_pos_np[:2] = converted_to_pixel_pos[0]
 
-        # If normalization is requested, scale the x and y coordinates by the frame dimensions.
+        # if norm requested, scale the x and y coordinates by the frame dimensions.
         if self.norm:
             pos_seq_np[:, 0] /= self.f_width
             pos_seq_np[:, 1] /= self.f_height
             pos_seq_np[:, 3] /= self.f_height
             target_pos_np[:2] /= np.array([self.f_width, self.f_height])
-        # Convert back to torch tensors.
+        # conv back to torch tensors.
         pos_seq = torch.tensor(pos_seq_np, dtype=torch.float32)
         target = torch.tensor(target_pos_np, dtype=torch.float32)
         
@@ -412,34 +373,32 @@ def build_holdout_dict(label_file, session_id, timesteps=10, holdout_steps=10, v
         grp = grp.sort_values('frame').reset_index(drop=True)
         if len(grp) < timesteps + holdout_steps:
             continue
-        # Load positions from CSV in world coordinates
+        # load positions from csv in world coordinates
         pos = grp[['x', 'y', 'z']].values.astype(np.float32)
 
-        # Convert the (x, y) world coordinates to pixel coordinates using H
+        # convert the world coordinates to pixel coordinates using H
         pos_pixel = pos.copy()
         pos_pixel[:, :2] = world_to_pixel(pos[:, :2], H)
         
         frames = grp['frame'].values
-        # Use the transformed (pixel) positions for the initial sequence
+        # se the transformed (pixel) positions for the initial sequence
         init_seq_pos = []
-        #init_seq_pos = pos_pixel[-(timesteps+holdout_steps):-holdout_steps]
-        #door_feature = (init_seq_pos[:, 1:2] - door_y)
-        #init_seq_pos = np.concatenate([init_seq_pos, door_feature], axis=1)
+        init_seq_pos = pos_pixel[-(timesteps+holdout_steps):-holdout_steps]
+        door_feature = (init_seq_pos[:, 1:2] - door_y)
+        init_seq_pos = np.concatenate([init_seq_pos, door_feature], axis=1)
         
         init_seq_vid = []
-        # Extract video patches for each frame in the input sequence.
-        # Here we use the pixel positions directly.
+        # extract video patches for each frame in the input sequence.
+        # here we use the pixel positions directly.
         for i in range(len(grp) - (timesteps + holdout_steps), len(grp) - holdout_steps):
             frame_no = int(frames[i])
             # Use the transformed pixel (x, y)
             pos_xy = pos_pixel[i, :2]
-            patch, pos = get_video_patch_yolo(frame_no, pos_xy, session_id, video_size, yolo_model=yolo_model)
-            # print("patch")
-            # print(patch.shape)
-            init_seq_pos.append(np.append(pos, (pos[1] - door_y).astype(np.float32)))
+            patch, _ = get_video_patch_yolo(frame_no, pos_xy, session_id, video_size, yolo_model=yolo_model)
+
             init_seq_vid.append(patch)
             
-        init_seq_pos = np.stack(init_seq_pos, axis=0)
+        # init_seq_pos = np.stack(init_seq_pos, axis=0)
         init_seq_vid = np.stack(init_seq_vid, axis=0)  # shape: (timesteps, channels, video_size, video_size)
         # Transform the true future positions as well.
         true_future = pos_pixel[-holdout_steps:]
@@ -567,7 +526,7 @@ if __name__ == '__main__':
     DOOR_Y = 450
 
     # List of sessions and corresponding label files
-    session_ids = [1, 2]#, 3, 5, 6, 7]  
+    session_ids = [1, 2, 3, 4, 5, 6, 7] 
     label_files = [f"Pedestrian_labels/{sid}_frame.txt" for sid in session_ids]
     
     # Set global SESSION_IDS for worker initialization
@@ -593,7 +552,7 @@ if __name__ == '__main__':
         if not os.path.exists(lmdb_path):
             print(f"Precomputing video patches for session {sid} and saving to {lmdb_path}...")
             temp_dataset = TrajectoryVideoDataset(label_file, sid, timesteps=timesteps, video_size=v_size, door_y=DOOR_Y, yolo_model=yolo_model)
-            precompute_and_save_video_patches_lmdb(temp_dataset, lmdb_path, batch_size=4, sess_id=sid)
+            precompute_and_save_video_patches_lmdb(temp_dataset, lmdb_path, batch_size=128, sess_id=sid)
         # Create LMDB dataset.
         ds = TrajectoryVideoLMDBDataset(lmdb_path, sid, door_y=DOOR_Y, norm=False)
         d_list.append(ds)
@@ -605,10 +564,12 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on {device}")
     model = TrajVideoTransformer().to(device)
+    # model = TrajVideoCNNLSTM().to(device)
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
 
-    checkpoint_path = "checkpoint_trans_good_norm_epoch_19.pth"
+    # checkpoint_path = "checkpoint_CNN_LAST_good_norm_epoch_50.pth"
+    checkpoint_path = "checkpoint_trans_good_ALL_POINTS_epoch_22.pth"
     start_epoch = 0 
 
     if os.path.isfile(checkpoint_path):
@@ -636,64 +597,45 @@ if __name__ == '__main__':
     #Run zoe once
     zoe = loadZoe()
     depth_map = zoe.infer_pil(frame, output_type="tensor").to(device)
-    #angle_model = main()
     angle_model = ImageRegressor().to(device)
-    #os.join(os.getcwd(), f"modified_angle/checkpoint_angle_pred_keypoints_TBD_epoch_{20}.pth")
     angle_checkpoint = torch.load(os.path.join(os.getcwd(), f"modified_angle\checkpoint_angle_pred_images_TBD_epoch_{20}.pth"), map_location=device)
     angle_model.load_state_dict(angle_checkpoint)
-    # print(frame.shape)
-    # cv2.imshow("Depth Frame", frame)
-    # cv2.waitKey(0)  
-    # cv2.destroyAllWindows()
-    # exit()
+
     for epoch in range(num_epochs):
-        print(depth_map.shape)
         real_epoch = start_epoch + epoch
-        checkpoint_path = f"checkpoint_trans_good_norm_epoch_{real_epoch+1}.pth"
+        checkpoint_path = f"checkpoint_trans_good_ALL_POINTS_epoch_{real_epoch+1}.pth"
         epoch_loss = 0.0
         for pos_seq, vid_seq, target in tqdm(t_loader):
             angle_results = inference(angle_model, vid_seq)
-            #print("AngleResults:")
-            #print(angle_results)
-            #show first frame of video
-            
-            # first_frame = vid_seq[0, 0].permute(1, 2, 0).cpu().numpy()  # Assuming vid_seq is on GPU, move to CPU and change shape to (H, W, C)
-
-            #first_frame = (first_frame * 255).astype(np.uint8)
 
             
-            pos_seq = pos_seq.to(device) # (batch, T, pos_dim)
+            pos_seq = pos_seq.to(device) 
             vid_seq = vid_seq.to(device)
             
+            
+            orig_width, orig_height = 1280, 1024
+            depth_H, depth_W = depth_map.shape[-2:] 
 
-            #print("POSITIONS")
-            #Round positions and cast to int\
-            
-            x_indices= pos_seq[..., 1].round().to(torch.int64)
-            y_indices = pos_seq[..., 0].round().to(torch.int64)
-            x_indices = torch.clamp(x_indices, min=0, max=1280-1)
-            y_indices = torch.clamp(y_indices, min=0, max=1024-1)
-            #print(torch.max(x_indices))
-            #print(torch.max(y_indices))
-            
-            # cv2.imshow("First Frame", first_frame)
-            # cv2.waitKey(0)  
-            # cv2.destroyAllWindows()
-            
-            # continue
-            #x_indices = x_values.type(torch.int64)
-            #y_indices = y_values.type(torch.int64)
-            
+            scale_x = depth_W / orig_width 
+            scale_y = depth_H / orig_height 
 
+            y_indices = pos_seq[..., 0].round().float() * scale_y
+            x_indices = pos_seq[..., 1].round().float() * scale_x
 
-            dpth_seq = depth_map[x_indices, y_indices].unsqueeze(-1)
-            #print(pos_seq.shape)
-            #print(x_indices.shape)
+            y_indices = y_indices.round().to(torch.int64).clamp(0, depth_H - 1)
+            x_indices = x_indices.round().to(torch.int64).clamp(0, depth_W - 1)
+
+            if depth_map.ndim == 3 and depth_map.shape[0] == 1:
+                depth_map = depth_map.squeeze(0)
+
+            dpth_seq = depth_map[y_indices, x_indices].unsqueeze(-1)
+
             target = target.to(device)
             optimizer.zero_grad()
             output = model(pos_seq, vid_seq, dpth_seq, angle_results).to(device)
             loss = criterion(output, target)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             epoch_loss += loss.item() * pos_seq.size(0)
         epoch_loss_avg = epoch_loss / len(t_dataset)
@@ -713,5 +655,5 @@ if __name__ == '__main__':
     holdout_dict = build_holdout_dict("Pedestrian_labels/0_frame.txt", 0, timesteps=timesteps, holdout_steps=holdout_steps, video_size=v_size, door_y=DOOR_Y, yolo_model=yolo_model)
     
     # Evaluate on selected persons (set selected_persons to None to evaluate all)
-    selected_persons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    selected_persons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
     eval_results = evaluate_holdout(model, holdout_dict, holdout_steps=holdout_steps, selected_persons=None, door_y=DOOR_Y, depth_map=depth_map, angle_model=angle_model)
