@@ -166,25 +166,24 @@ class TrajVideoCNNLSTM(nn.Module):
         # Process trajectory positions
         pos_emb = self.pos_fc(pos_seq)  # shape: (batch, T, pos_embed_dim)
         
-        # Reshape to combine batch and T dimensions for CNN processing.
+         # Reshape to combine batch and T dimensions for CNN processing.
         vid_seq = vid_seq.view(batch * T, vid_seq.shape[2], vid_seq.shape[3], vid_seq.shape[4])
         cnn_out = self.cnn_encoder(vid_seq)  # shape: (batch*T, 32, video_size/4, video_size/4)
         cnn_out = cnn_out.contiguous().view(batch, T, -1)  # shape: (batch, T, cnn_out_size)
         vid_emb = self.video_fc(cnn_out)  # shape: (batch, T, cnn_feature_dim)
         
-        # Concatenate the position and video features along the feature dimension
+        # Concat pos and vid features along the feature dimension
         combined = torch.cat([pos_emb, vid_emb], dim=2)  # shape: (batch, T, pos_embed_dim+cnn_feature_dim)
         
-        # Project the concatenated features to the LSTM input dimension
+        # Project the concat features to the LSTM input dimension
         lstm_input = self.input_fc(combined)  # shape: (batch, T, lstm_hidden_dim)
         
-        # Process sequence through LSTM
         lstm_out, (h_n, _) = self.lstm(lstm_input)  # h_n: (num_layers, batch, lstm_hidden_dim)
         
-        # Use the last layer's hidden state (for each sample in batch)
+        # Use the last layer h state (for each sample in batch)
         last_hidden = h_n[-1]  # shape: (batch, lstm_hidden_dim)
         
-        # Final prediction
+        # final pred
         pred = self.fc_out(last_hidden)  # shape: (batch, output_dim)
         return pred
 
